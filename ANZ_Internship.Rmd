@@ -1,0 +1,151 @@
+---
+title: "Internship_1"
+output: pdf_document
+---
+
+
+```{r}
+library(stringr)
+library(readxl)
+library(tidyr)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+#library(tidyverse)
+#install.packages("modelr")
+#library(modelr)
+library(sp)
+#install.packages("leaflet")
+
+library(leaflet)
+#install.packages("geosphere")
+library(geosphere)
+#library(knitr)
+library(rpart)
+
+
+```
+
+
+```{r}
+Transactional_data <- read_xlsx("ANZ Internship/ANZ synthesised transaction dataset.xlsx")
+#After loading the transactional dataset we get the below issue Expecting #numeric in C3052 / R3052C3: got 'THE DISCOUNT CHEMIST GROUP'Expecting #numeric in C4360 / R4360C3: got 'LAND WATER & PLANNING East Melbourne'
+#In the row no :C3052 and C4360 we found there are non-numeric elements which are replaced by zero as numeric in the excel file .As, after loading into R these are coerced into NA's .
+
+
+#The dataset contains 12043 transactions for 100 customers who have one #bank account each. Trasactional period is from 01/08/2018 - 31/10/2018 (92 days duration). The data entries are unique and have consistent formats for
+#analysis. For each record/row, information is complete for majority of columns. Some columns contain missing
+#data (blank or NA cells), which is likely due to the nature of transaction. (i.e. merchants are not involved for
+#InterBank transfers or Salary payments) It is also noticed that there is #only 91 unique dates in the dataset,suggesting the transaction records for one day are missing (turned out to be 2018-08-16).
+#The range of each feature should also be examined which shows that there is one customer that resides outside Australia.
+```
+
+```{r}
+#learn about the data 
+summary(Transactional_data)
+str(Transactional_data)
+# Format Date 
+Transactional_data$date<- as.Date(Transactional_data$date,format = "%d/%m/%Y")
+#To find which date was missing
+DateRange <- seq(min(Transactional_data$date), max(Transactional_data$date), by = 1)
+DateRange[!DateRange %in% Transactional_data$date]
+# 2018-08-16 date  transactions are missing
+#derive weekday and hour data of each transaction
+Transactional_data$extraction = as.character(Transactional_data$extraction)
+Transactional_data$hour = hour(as.POSIXct(substr(Transactional_data$extraction,12,19),format="%H:%M:%S"))
+Transactional_data$weekday = weekdays(Transactional_data$date)
+
+#Split customer's logitude and latitude information  and merchant's long an #d lat using 'seperate'
+dfloc = Transactional_data[,c("long_lat","merchant_long_lat")]
+dfloc<- dfloc %>% separate("long_lat", c("cust_long", "cust_lat"),sep=' ')
+dfloc<- dfloc %>% separate("merchant_long_lat", c("mer_long", "mer_lat"),sep=' ')
+dfloc<- data.frame(sapply(dfloc, as.numeric))
+df <- cbind(Transactional_data,dfloc)
+# check the distribution of missing values
+apply(df, 2, function(x) sum(is.na(x)| x == ''))
+# check the number of unique values for each column
+apply(df, 2, function(x) length(unique(x)))
+
+# filtering out purchase transactions only
+# assuming purchase transactions must be associated with a merchant (have a merchant Id)
+df_temp <- df %>% filter(merchant_id != '' )
+# it turned out that is equivilent to excluding following categories of transactions
+df_csmp <- df %>%filter(!(txn_description %in% c('PAY/SALARY',"INTER BANK", "PHONE BANK","PAYMEN
+T")))
+summary(df_csmp)
+# visualise the distribution of transaction amount
+hist(df_csmp$amount[!df_csmp$amount %in% boxplot.stats(df_csmp$amount)$out], #include outliers
+xlab= 'Transaction Amount', main = 'Histogram of purchase transaction amount')
+
+hist(df$amount[!df$amount %in% boxplot.stats(df$amount)$out], #exclude outliers
+xlab= 'Transaction Amount',main = 'Histogram of overall transaction amount')
+df2 <- df %>%
+group_by(customer_id) %>%
+summarise(mon_avg_vol = round(n()/3,0))
+df2 <- df %>%
+group_by(customer_id) %>%
+summarise(mon_avg_vol = round(n()/3,0))
+hist(df2$mon_avg_vol,
+xlab= 'Monthly transaction volume', ylab='No. of customers', main = "Histogram of customer
+s' monthly transaction volume")
+
+```
+
+```{r}
+#Handling date and time 
+df3 <- df %>%
+select(date,weekday) %>%
+group_by(date,weekday) %>%
+summarise(daily_avg_vol = n()) %>%
+group_by(weekday) %>%
+summarise(avg_vol=mean(daily_avg_vol,na.rm=TRUE ))
+df3$weekday <- factor(df3$weekday, levels=c( "Monday","Tuesday","Wednesday",
+"Thursday","Friday","Saturday","Sunday"))
+ggplot(df3,aes(x=weekday, y=avg_vol)) +geom_point()+geom_line(aes(group = 1))+
+ggtitle('Average transaction volume by weekday') +
+labs(x='Weekday',y='Transaction volume')
+
+
+
+```
+
+
+```{r}
+# visualize transaction volume over an average week.
+df4 <- df %>%
+select(date,hour) %>%
+group_by(date,hour) %>%
+summarize(trans_vol=n()) %>%
+group_by(hour) %>%
+summarize(trans_vol_per_hr = mean(trans_vol,na.rm=TRUE))
+ggplot(df4,aes(x=hour,y=trans_vol_per_hr))+geom_point()+geom_line(aes(group = 1))+
+ggtitle('Average transaction volume by hour') +
+labs(x='Hour',y='Transaction volume') + expand_limits( y = 0)
+```
+
+
+```{r}
+#Location details
+df_temp <- df_csmp %>%
+filter (cust_long >113 & cust_long <154 & cust_lat > (-44) & cust_lat < (-10))
+dfloc = df_temp [,c("cust_long", "cust_lat","mer_long", "mer_lat")]
+dfloc<- data.frame(sapply(dfloc, as.numeric))
+dfloc$dst <- distHaversine(dfloc[, 1:2], dfloc[, 3:4]) / 1000
+hist(dfloc$dst[dfloc$dst<100], main = "Distance between customer and merchants",xlab= 'Distance
+(km)' )
+
+```
+```{r}
+df_temp <- df_csmp %>%
+filter (cust_long >113 & cust_long <154 & cust_lat > (-44) & cust_lat < (-10))
+dfloc = df_temp [,c("cust_long", "cust_lat","mer_long", "mer_lat")]
+dfloc<- data.frame(sapply(dfloc, as.numeric))
+dfloc$dst <- distHaversine(dfloc[, 1:2], dfloc[, 3:4]) / 1000
+hist(dfloc$dst[dfloc$dst<100], main = "Distance between customer and merchants",xlab= 'Distance
+(km)' )
+
+
+```
+
+
+
