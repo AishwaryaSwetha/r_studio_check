@@ -1,0 +1,51 @@
+---
+title: "ANZ_Internship_Prediction"
+output: pdf_document
+---
+```{r}
+#libraries
+library("readxl")
+```
+
+```{r}
+
+Transactional_data <- read_xlsx("ANZ synthesised transaction dataset.xlsx")
+
+# firstly check the salary payment frequency of each customer
+df_inc = data.frame(customer_id= unique(Transactional_data$customer_id)) #create a data frame to store result
+# create a mode function that will be used to find out what is the salary payment frequency
+Mode <- function(x) {
+ux <- unique(x)
+ux[which.max(tabulate(match(x, ux)))]
+}
+# loop through all salary payment for each customer
+# assume the salary level is constant for each customer over the observed period
+for (i in seq(nrow(df_inc))){
+trans_data <- Transactional_data[Transactional_data$customer_id == df_inc$customer_id[i]
+& Transactional_data$txn_description=='PAY/SALARY',c("amount","date")] %>%
+group_by(date) %>%
+summarise(amount = sum(amount))
+total_s <- sum(Transactional_data$amount)
+count = dim(Transactional_data)[1]
+if ( count == 0){
+df_inc$freq[i] = NA
+df_inc$level[i] = NA
+} else {
+s=c()
+lvl = c()
+for (j in seq(count-1)){
+s = c(s,(Transactional_data$date[j+1]-Transactional_data$date[j]))
+lvl = c(lvl,Transactional_data$amount[j])
+}
+lvl = c(lvl,tail(Transactional_data$amount,n=1))
+df_inc$freq[i] = Mode(s)
+df_inc$level[i] = Mode(lvl)
+}
+}
+df_inc$annual_salary= df_inc$level / df_inc$freq *365.25
+# visualise the distribution of customers' annual salary
+hist(df_inc$annual_salary[!is.na(df_inc$annual_salary)],breaks=c(seq(28000,140000,by = 10000)),
+main = "Histogram of customers' annual salary", xlab= 'Income($)')
+
+```
+
